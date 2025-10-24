@@ -45,7 +45,7 @@ mount "$EFI_PART" /mnt/boot
 echo "[*] Mounting source system..."
 mkdir -p /old
 mount "${SRC_DRIVE}p2" /old
-mount "${SRC_DRIVE}p1" /old/boot || true
+mount "${SRC_DRIVE}p1" /old/boot
 
 # STEP6: Rsync clone
 echo "[*] Cloning system via rsync..."
@@ -64,18 +64,15 @@ echo "[chroot] Installing bootloader..."
 if command -v grub-install >/dev/null 2>&1; then
   grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=ArchLinux
   grub-mkconfig -o /boot/grub/grub.cfg
-elif command -v bootctl >/dev/null 2>&1; then
-  bootctl install
-  echo "[!] Reminder: Check /boot/loader/entries/arch.conf root UUID."
 else
-  echo "[!] No bootlder found. Please install manually."
+  echo "[!] command -v grub-install failed!"
 fi
 EOF
 
 # STEP8: Cleanup
 echo "[*] Cleaning up..."
 umount -R /mnt
-umount /old || true
+umount -R /old
 
 echo "[✓] Clone complete!"
 echo "You can now reboot and select the new drive ($DST_DRIVE) in your BIOS/UEFI."
