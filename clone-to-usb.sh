@@ -7,8 +7,8 @@ TARGET_ROOT="${TARGET_DISK}2"
 
 MODE="full"
 case "${1:-}" in
-    --update|-u)    MODE="update" ;;
-    --soft-update)  MODE="soft-update" ;;
+    --update|-u)       MODE="update" ;;
+    --soft-update|-s)  MODE="soft-update" ;;
 esac
 
 if [[ "$MODE" == "update" ]]; then
