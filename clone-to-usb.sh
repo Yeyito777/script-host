@@ -72,33 +72,36 @@ if [[ $rsync_exit -ne 0 ]]; then
     echo "rsync completed with warnings (exit code $rsync_exit) - continuing"
 fi
 
-echo "== Recreate fstab based on new UUIDs =="
-TGT_UUID_ROOT=$(sudo blkid -s UUID -o value "$TARGET_ROOT")
-TGT_UUID_EFI=$(sudo blkid -s UUID -o value "$TARGET_EFI")
+if [[ "$MODE" == "full" ]]; then
+    echo "== Recreate fstab based on new UUIDs =="
+    TGT_UUID_ROOT=$(sudo blkid -s UUID -o value "$TARGET_ROOT")
+    TGT_UUID_EFI=$(sudo blkid -s UUID -o value "$TARGET_EFI")
 
-cat <<EOF | sudo tee "$TGT_MNT/etc/fstab"
+    cat <<EOF | sudo tee "$TGT_MNT/etc/fstab"
 UUID=$TGT_UUID_ROOT / ext4 defaults,noatime 0 1
 UUID=$TGT_UUID_EFI  /boot/efi vfat umask=0077 0 1
 EOF
 
-echo "== Bind-mounting for chroot =="
-for i in proc sys dev run; do
-    sudo mount --bind /$i "$TGT_MNT"/$i
-done
+    echo "== Bind-mounting for chroot =="
+    for i in proc sys dev run; do
+        sudo mount --bind /$i "$TGT_MNT"/$i
+    done
 
-echo "== Installing bootloader (GRUB/EFI) =="
-sudo chroot "$TGT_MNT" bash -c "
-    set -e
-    grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=USBClone --removable
-    grub-mkconfig -o /boot/grub/grub.cfg
-"
+    echo "== Installing bootloader (GRUB/EFI) =="
+    sudo chroot "$TGT_MNT" bash -c "
+        set -e
+        grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=USBClone --removable
+        grub-mkconfig -o /boot/grub/grub.cfg
+    "
+
+    for i in run dev sys proc; do
+        sudo umount "$TGT_MNT"/$i
+    done
+fi
 
 echo "== Cleaning up =="
-for i in run dev sys proc; do
-    sudo umount "$TGT_MNT"/$i
-done
 sudo umount "$TGT_MNT/boot/efi"
 sudo umount "$TGT_MNT"
 rmdir "$TGT_MNT"
 
-echo "=== Done! The USB should now be bootable. ==="
+echo "=== Done! ==="
