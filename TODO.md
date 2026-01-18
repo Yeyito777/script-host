@@ -1,0 +1,1 @@
+- [ ] Add an option to rsync through the network when copying to a remote
