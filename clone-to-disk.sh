@@ -91,6 +91,12 @@ EOF
         sudo mount --bind /$i "$TGT_MNT"/$i
     done
 
+    echo "== Ensuring protective kernel parameters =="
+    # Add amdgpu recovery flags if not present (harmless on non-AMD systems)
+    if ! grep -q "amdgpu.gpu_recovery" "$TGT_MNT/etc/default/grub"; then
+        sudo sed -i 's/\(GRUB_CMDLINE_LINUX_DEFAULT="[^"]*\)"/\1 amdgpu.gpu_recovery=1 amdgpu.runpm=0"/' "$TGT_MNT/etc/default/grub"
+    fi
+
     echo "== Installing bootloader (GRUB/EFI) =="
     sudo chroot "$TGT_MNT" bash -c "
         set -e

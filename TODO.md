@@ -1,1 +1,2 @@
-- [ ] Add an option to rsync through the network when copying to a remote
+- [ ] Get the NVME drive on a stick so this isn't actually painful to use
+- [ ] Test the protective kernel parameters on a flashed disk, this can be done by checking /etc/default/grub and making sure that it has the amdgpu.gpu_recover=1 and amdgpu.runpm=0 flags.
