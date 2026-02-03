@@ -52,7 +52,7 @@ sudo mkdir -p "$TGT_MNT/boot/efi"
 sudo mount "$TARGET_EFI" "$TGT_MNT/boot/efi"
 
 echo "== Cloning root filesystem with rsync =="
-RSYNC_OPTS=(-aAXHv --exclude={"/dev/*","/proc/*","/sys/*","/run/*","/tmp/*","/mnt/*","/media/*","/lost+found","/home/yeyito/.cache/*"})
+RSYNC_OPTS=(-aAXHv --exclude={"/dev/*","/proc/*","/sys/*","/run/*","/tmp/*","/mnt/*","/media/*","/lost+found"})
 if [[ "$MODE" != "full" ]]; then
     # Preserve USB-specific boot config (has USB's UUIDs, not source disk's)
     RSYNC_OPTS+=(--exclude="/etc/fstab" --exclude="/boot/grub/grub.cfg")
