@@ -52,7 +52,7 @@ sudo mkdir -p "$TGT_MNT/boot/efi"
 sudo mount "$TARGET_EFI" "$TGT_MNT/boot/efi"
 
 echo "== Cloning root filesystem with rsync =="
-RSYNC_OPTS=(-aAXHv --exclude={"/dev/*","/proc/*","/sys/*","/run/*","/tmp/*","/mnt/*","/media/*","/lost+found"})
+RSYNC_OPTS=(-aAXHv --filter=': .rsync-filter' --exclude={"/dev/*","/proc/*","/sys/*","/run/*","/tmp/*","/mnt/*","/media/*","/lost+found","/etc/ssh/ssh_host_*","/etc/systemd/system/*/sshd.service","/swapfile"})
 if [[ "$MODE" != "full" ]]; then
     # Preserve USB-specific boot config (has USB's UUIDs, not source disk's)
     RSYNC_OPTS+=(--exclude="/etc/fstab" --exclude="/boot/grub/grub.cfg")
@@ -84,7 +84,13 @@ if [[ "$MODE" == "full" ]]; then
     cat <<EOF | sudo tee "$TGT_MNT/etc/fstab"
 UUID=$TGT_UUID_ROOT / ext4 defaults,noatime 0 1
 UUID=$TGT_UUID_EFI  /boot/efi vfat umask=0077 0 1
+/swapfile none swap sw 0 0
 EOF
+
+    echo "== Creating swapfile on target =="
+    sudo fallocate -l 16G "$TGT_MNT/swapfile"
+    sudo chmod 600 "$TGT_MNT/swapfile"
+    sudo mkswap "$TGT_MNT/swapfile"
 
     echo "== Bind-mounting for chroot =="
     for i in proc sys dev run; do

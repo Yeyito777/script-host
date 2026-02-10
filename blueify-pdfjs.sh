@@ -1,13 +1,17 @@
 #!/bin/bash
 # Appends dark mode CSS tweaks to the PDF.js viewer stylesheet.
 # Must be run with sudo.
+#
+# Usage:
+#   sudo ./blueify-pdfjs.sh           # Apply the dark mode patch
+#   sudo ./blueify-pdfjs.sh --remove  # Remove the dark mode patch
 
 # === CONFIGURATION ===
 # Background color (Deep Blue)
 PDF_BG_COLOR="#00050f"
 
-# Text Color (Hex). 
-# Note: Since this uses filters, this primarily controls the brightness/greyscale 
+# Text Color (Hex).
+# Note: Since this uses filters, this primarily controls the brightness/greyscale
 # of the text. #ffffff is pure white, #dddddd is light grey, #888888 is dark grey.
 TEXT_COLOR="#eeeeee"
 # =====================
@@ -15,10 +19,46 @@ TEXT_COLOR="#eeeeee"
 TARGET="/usr/share/pdf.js/web/viewer.css"
 BACKUP="/usr/share/pdf.js/web/viewer.css.bak"
 
+MARKER_START="/* === Custom Dark Mode Patch === */"
+MARKER_END="/* === End Dark Mode Patch === */"
+
+# Check for root privileges
+if [ "$EUID" -ne 0 ]; then
+  echo "Error: This script must be run with sudo."
+  exit 1
+fi
+
 # Check if target file exists
 if [ ! -f "$TARGET" ]; then
   echo "Error: $TARGET not found. Please check the path."
   exit 1
+fi
+
+# --- Remove mode ---
+if [ "$1" = "--remove" ]; then
+  if ! grep -q "$MARKER_START" "$TARGET"; then
+    echo "Patch not found in $TARGET. Nothing to remove."
+    exit 0
+  fi
+
+  echo "Creating backup at $BACKUP..."
+  cp "$TARGET" "$BACKUP"
+
+  echo "Removing dark mode patch from $TARGET..."
+  # Delete from the blank line before the start marker through the end marker
+  sed -i "/^${MARKER_START//\*/\\*}$/,/^${MARKER_END//\*/\\*}$/d" "$TARGET"
+  # Remove any trailing blank lines left behind
+  sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$TARGET"
+
+  echo "Done. Patch removed."
+  exit 0
+fi
+
+# --- Apply mode ---
+if grep -q "$MARKER_START" "$TARGET"; then
+  echo "Patch already applied to $TARGET. Nothing to do."
+  echo "Use --remove to remove it first."
+  exit 0
 fi
 
 # Calculate Brightness Ratio from Hex
@@ -40,7 +80,7 @@ cp "$TARGET" "$BACKUP"
 echo "Appending custom dark mode CSS to $TARGET..."
 cat << EOF >> "$TARGET"
 
-/* === Custom Dark Mode Patch === */
+${MARKER_START}
 
 /* 1. Set the physical background of the page container. */
 .page, .page .canvasWrapper {
@@ -52,7 +92,7 @@ cat << EOF >> "$TARGET"
    - invert(100%): Swaps White BG -> Black, Black Text -> White.
    - hue-rotate(180deg): Rotates colors back (so red stays red-ish).
    - brightness(${BRIGHTNESS}): Dims the text to match the requested hex value.
-   - mix-blend-mode: screen: Makes the Black background transparent 
+   - mix-blend-mode: screen: Makes the Black background transparent
      so the ${PDF_BG_COLOR} shows through. */
 .page canvas {
   filter: invert(100%) hue-rotate(180deg) brightness(${BRIGHTNESS});
@@ -64,7 +104,7 @@ cat << EOF >> "$TARGET"
   opacity: 1;
   mix-blend-mode: normal;
 }
-/* === End Dark Mode Patch === */
+${MARKER_END}
 
 EOF
 
