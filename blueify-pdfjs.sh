@@ -36,7 +36,7 @@ fi
 
 # --- Remove mode ---
 if [ "$1" = "--remove" ]; then
-  if ! grep -q "$MARKER_START" "$TARGET"; then
+  if ! grep -Fq "$MARKER_START" "$TARGET"; then
     echo "Patch not found in $TARGET. Nothing to remove."
     exit 0
   fi
@@ -45,8 +45,8 @@ if [ "$1" = "--remove" ]; then
   cp "$TARGET" "$BACKUP"
 
   echo "Removing dark mode patch from $TARGET..."
-  # Delete from the blank line before the start marker through the end marker
-  sed -i "/^${MARKER_START//\*/\\*}$/,/^${MARKER_END//\*/\\*}$/d" "$TARGET"
+  # Delete from the start marker through the end marker (inclusive)
+  sed -i "/$(printf '%s' "$MARKER_START" | sed 's/[*/.[\\]/\\&/g')/,/$(printf '%s' "$MARKER_END" | sed 's/[*/.[\\]/\\&/g')/d" "$TARGET"
   # Remove any trailing blank lines left behind
   sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$TARGET"
 
@@ -55,7 +55,7 @@ if [ "$1" = "--remove" ]; then
 fi
 
 # --- Apply mode ---
-if grep -q "$MARKER_START" "$TARGET"; then
+if grep -Fq "$MARKER_START" "$TARGET"; then
   echo "Patch already applied to $TARGET. Nothing to do."
   echo "Use --remove to remove it first."
   exit 0
