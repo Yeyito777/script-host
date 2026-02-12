@@ -76,6 +76,9 @@ if [[ $rsync_exit -ne 0 ]]; then
     echo "rsync completed with warnings (exit code $rsync_exit) - continuing"
 fi
 
+echo "== Stripping hardware-specific fields from NetworkManager profiles =="
+sudo sed -i '/^interface-name=/d;/^mac-address=/d;/^cloned-mac-address=/d' "$TGT_MNT"/etc/NetworkManager/system-connections/*.nmconnection 2>/dev/null || true
+
 if [[ "$MODE" == "full" ]]; then
     echo "== Recreate fstab based on new UUIDs =="
     TGT_UUID_ROOT=$(sudo blkid -s UUID -o value "$TARGET_ROOT")
