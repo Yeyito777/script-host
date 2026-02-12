@@ -46,13 +46,14 @@ else
 fi
 
 echo "== Mounting target =="
-TGT_MNT=$(mktemp -d)
+TGT_MNT="/mnt/clone-target"
+sudo mkdir -p "$TGT_MNT"
 sudo mount "$TARGET_ROOT" "$TGT_MNT"
 sudo mkdir -p "$TGT_MNT/boot/efi"
 sudo mount "$TARGET_EFI" "$TGT_MNT/boot/efi"
 
 echo "== Cloning root filesystem with rsync =="
-RSYNC_OPTS=(-aAXHv --filter=': .rsync-filter' --exclude={"/dev/*","/proc/*","/sys/*","/run/*","/tmp/*","/mnt/*","/media/*","/lost+found","/etc/ssh/ssh_host_*","/etc/systemd/system/*/sshd.service","/swapfile"})
+RSYNC_OPTS=(-aAXHv --stats --filter=': .rsync-filter' --exclude={"/dev/*","/proc/*","/sys/*","/run/*","/tmp/*","/mnt/*","/media/*","/lost+found","/etc/ssh/ssh_host_*","/etc/systemd/system/*/sshd.service","/swapfile"})
 if [[ "$MODE" != "full" ]]; then
     # Preserve USB-specific boot config (has USB's UUIDs, not source disk's)
     RSYNC_OPTS+=(--exclude="/etc/fstab" --exclude="/boot/grub/grub.cfg")
@@ -60,16 +61,20 @@ fi
 if [[ "$MODE" == "update" ]]; then
     RSYNC_OPTS+=(--delete)
 fi
+RSYNC_LOG=$(mktemp)
+CLONE_START=$SECONDS
 set +e
-sudo rsync "${RSYNC_OPTS[@]}" / "$TGT_MNT"/
-rsync_exit=$?
+sudo rsync "${RSYNC_OPTS[@]}" / "$TGT_MNT"/ 2>&1 | tee "$RSYNC_LOG"
+rsync_exit=${PIPESTATUS[0]}
 set -e
+CLONE_SECS=$((SECONDS - CLONE_START))
 # Acceptable exit codes for live system clones:
 #   0  - Success
 #   23 - Partial transfer (some files couldn't be read/written)
 #   24 - Some files vanished before transfer
 if [[ $rsync_exit -ne 0 && $rsync_exit -ne 23 && $rsync_exit -ne 24 ]]; then
     echo "rsync failed with exit code $rsync_exit"
+    rm -f "$RSYNC_LOG"
     exit $rsync_exit
 fi
 if [[ $rsync_exit -ne 0 ]]; then
@@ -95,32 +100,43 @@ EOF
     sudo chmod 600 "$TGT_MNT/swapfile"
     sudo mkswap "$TGT_MNT/swapfile"
 
-    echo "== Bind-mounting for chroot =="
-    for i in proc sys dev run; do
-        sudo mount --bind /$i "$TGT_MNT"/$i
-    done
-
-    echo "== Ensuring protective kernel parameters =="
-    # Add amdgpu recovery flags if not present (harmless on non-AMD systems)
-    if ! grep -q "amdgpu.gpu_recovery" "$TGT_MNT/etc/default/grub"; then
-        sudo sed -i 's/\(GRUB_CMDLINE_LINUX_DEFAULT="[^"]*\)"/\1 amdgpu.gpu_recovery=1 amdgpu.runpm=0"/' "$TGT_MNT/etc/default/grub"
-    fi
-
-    echo "== Installing bootloader (GRUB/EFI) =="
-    sudo chroot "$TGT_MNT" bash -c "
+    echo "== Chroot setup (isolated mount namespace) =="
+    sudo env TGT_MNT="$TGT_MNT" unshare --mount bash <<'CHROOT_NS'
         set -e
-        grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=USBClone --removable
-        grub-mkconfig -o /boot/grub/grub.cfg
-    "
+        for i in proc sys dev run; do
+            mount --bind /$i "$TGT_MNT"/$i
+        done
 
-    for i in run dev sys proc; do
-        sudo umount "$TGT_MNT"/$i
-    done
+        echo "== Ensuring protective kernel parameters =="
+        if ! grep -q "amdgpu.gpu_recovery" "$TGT_MNT/etc/default/grub"; then
+            sed -i 's/\(GRUB_CMDLINE_LINUX_DEFAULT="[^"]*\)"/\1 amdgpu.gpu_recovery=1 amdgpu.runpm=0"/' "$TGT_MNT/etc/default/grub"
+        fi
+
+        echo "== Installing bootloader (GRUB/EFI) =="
+        chroot "$TGT_MNT" bash -c "
+            set -e
+            grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=USBClone --removable
+            grub-mkconfig -o /boot/grub/grub.cfg
+        "
+CHROOT_NS
 fi
 
 echo "== Cleaning up =="
 sudo umount "$TGT_MNT/boot/efi"
 sudo umount "$TGT_MNT"
-rmdir "$TGT_MNT"
+sudo rmdir "$TGT_MNT"
 
+CLONE_BYTES=$(grep "Total transferred file size:" "$RSYNC_LOG" | grep -oP '[\d,]+' | head -1 | tr -d ',')
+rm -f "$RSYNC_LOG"
+CLONE_GB=$(awk "BEGIN {printf \"%.2f\", ${CLONE_BYTES:-0} / 1073741824}")
+CLONE_GB_SEC=$(awk "BEGIN {s=${CLONE_SECS:-0}; printf \"%.2f\", (s>0) ? (${CLONE_BYTES:-0}/1073741824)/s : 0}")
+CLONE_MB_SEC=$(awk "BEGIN {s=${CLONE_SECS:-0}; printf \"%.2f\", (s>0) ? (${CLONE_BYTES:-0}/1048576)/s : 0}")
+CLONE_MIN=$((CLONE_SECS / 60))
+CLONE_SEC=$((CLONE_SECS % 60))
+
+echo "=== Clone Summary ==="
+echo "Time taken: ${CLONE_MIN}m ${CLONE_SEC}s"
+echo "Data cloned: ${CLONE_GB} GB"
+echo "Speed: ${CLONE_GB_SEC} GB/s (${CLONE_MB_SEC} MB/s)"
+echo ""
 echo "=== Done! ==="
