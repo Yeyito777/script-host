@@ -55,8 +55,8 @@ sudo mount "$TARGET_EFI" "$TGT_MNT/boot/efi"
 echo "== Cloning root filesystem with rsync =="
 RSYNC_OPTS=(-aAXHv --stats --filter=': .rsync-filter' --exclude={"/dev/*","/proc/*","/sys/*","/run/*","/tmp/*","/mnt/*","/media/*","/lost+found","/etc/ssh/ssh_host_*","/etc/systemd/system/*/sshd.service","/swapfile"})
 if [[ "$MODE" != "full" ]]; then
-    # Preserve USB-specific boot config (has USB's UUIDs, not source disk's)
-    RSYNC_OPTS+=(--exclude="/etc/fstab" --exclude="/boot/grub/grub.cfg")
+    # Preserve USB-specific boot config (UUIDs, GRUB install, EFI bootloader)
+    RSYNC_OPTS+=(--exclude="/etc/fstab" --exclude="/boot/grub/*" --exclude="/boot/efi/*")
 fi
 if [[ "$MODE" == "update" ]]; then
     RSYNC_OPTS+=(--delete)
@@ -137,6 +137,6 @@ CLONE_SEC=$((CLONE_SECS % 60))
 echo "=== Clone Summary ==="
 echo "Time taken: ${CLONE_MIN}m ${CLONE_SEC}s"
 echo "Data cloned: ${CLONE_GB} GB"
-echo "Speed: ${CLONE_GB_SEC} GB/s (${CLONE_MB_SEC} MB/s)"
+echo "Speed: ${CLONE_MB_SEC} MB/s"
 echo ""
 echo "=== Done! ==="
