@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONFIG="$HOME/.ssh/config"
+SSH_DIR="$HOME/.ssh"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  ssh-alias <alias> <user@host|host> [ssh options...]
+  ssh-alias --list
+  ssh-alias --remove <alias>
+
+Examples:
+  ssh-alias whale yeyito@192.168.0.101
+  ssh-alias whale-net yeyito@190.140.208.6 -p 48223
+  ssh-alias kitsune yeyito@kitsune.yeyito.dev -p 48222
+
+Notes:
+  - Writes managed blocks to ~/.ssh/config.
+  - Defaults IdentityFile to ~/.ssh/id_ed25519_<current-hostname> if present.
+EOF
+}
+
+host_alias_valid() {
+    [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
+}
+
+current_alias() {
+    local h
+    h=$(cat /etc/hostname 2>/dev/null || hostname 2>/dev/null || uname -n)
+    h=${h%%.*}
+    printf '%s\n' "$h"
+}
+
+ensure_config() {
+    mkdir -p "$SSH_DIR"
+    chmod 700 "$SSH_DIR"
+    touch "$CONFIG"
+    chmod 600 "$CONFIG"
+}
+
+remove_block_from_file() {
+    local alias="$1" src="$2" dst="$3"
+    awk -v alias="$alias" '
+        $0 == "# >>> ssh-alias managed: " alias {skip=1; next}
+        $0 == "# <<< ssh-alias managed: " alias {skip=0; next}
+        !skip {print}
+    ' "$src" > "$dst"
+}
+
+remove_alias() {
+    local alias="$1" tmp
+    ensure_config
+    tmp=$(mktemp)
+    remove_block_from_file "$alias" "$CONFIG" "$tmp"
+    mv "$tmp" "$CONFIG"
+    chmod 600 "$CONFIG"
+    echo "Removed ssh alias: $alias"
+}
+
+list_aliases() {
+    ensure_config
+    awk '
+        /^# >>> ssh-alias managed: / {
+            alias=$0
+            sub(/^# >>> ssh-alias managed: /, "", alias)
+            aliases[++n]=alias
+        }
+        /^[[:space:]]*HostName[[:space:]]+/ && n {host[aliases[n]]=$2}
+        /^[[:space:]]*User[[:space:]]+/ && n {user[aliases[n]]=$2}
+        /^[[:space:]]*Port[[:space:]]+/ && n {port[aliases[n]]=$2}
+        END {
+            for (i=1; i<=n; i++) {
+                a=aliases[i]
+                printf "%s -> %s%s%s\n", a, (user[a] ? user[a] "@" : ""), host[a], (port[a] ? " -p " port[a] : "")
+            }
+        }
+    ' "$CONFIG"
+}
+
+parse_and_write_alias() {
+    local alias="$1" target="$2"
+    shift 2
+
+    if ! host_alias_valid "$alias"; then
+        echo "Invalid alias: $alias" >&2
+        echo "Use letters/numbers/dot/underscore/dash; must start with letter/number." >&2
+        exit 1
+    fi
+
+    local user host port identity machine tmp
+    if [[ "$target" == *@* ]]; then
+        user="${target%@*}"
+        host="${target#*@}"
+    else
+        user="$USER"
+        host="$target"
+    fi
+
+    port=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -p|--port)
+                [[ $# -ge 2 ]] || { echo "Missing value for $1" >&2; exit 1; }
+                port="$2"
+                shift 2
+                ;;
+            -i|--identity-file|IdentityFile)
+                [[ $# -ge 2 ]] || { echo "Missing value for $1" >&2; exit 1; }
+                identity="$2"
+                shift 2
+                ;;
+            *)
+                echo "Unsupported option for alias creation: $1" >&2
+                echo "Supported: -p/--port, -i/--identity-file" >&2
+                exit 1
+                ;;
+        esac
+    done
+
+    machine=$(current_alias)
+    identity="${identity:-$SSH_DIR/id_ed25519_${machine}}"
+
+    ensure_config
+    tmp=$(mktemp)
+    remove_block_from_file "$alias" "$CONFIG" "$tmp"
+
+    {
+        cat "$tmp"
+        # Ensure separation from previous content.
+        printf '\n'
+        printf '# >>> ssh-alias managed: %s\n' "$alias"
+        printf 'Host %s\n' "$alias"
+        printf '    HostName %s\n' "$host"
+        printf '    User %s\n' "$user"
+        if [[ -n "$port" ]]; then
+            printf '    Port %s\n' "$port"
+        fi
+        if [[ -f "$identity" ]]; then
+            printf '    IdentityFile %s\n' "$identity"
+            printf '    IdentitiesOnly yes\n'
+        else
+            printf '    # IdentityFile %s\n' "$identity"
+            printf '    # IdentitiesOnly yes\n'
+        fi
+        printf '# <<< ssh-alias managed: %s\n' "$alias"
+    } > "$CONFIG"
+    rm -f "$tmp"
+    chmod 600 "$CONFIG"
+
+    echo "Configured ssh alias: $alias"
+    echo "  ssh $alias"
+    echo "  -> $user@$host${port:+ -p $port}"
+    if [[ -f "$identity" ]]; then
+        echo "  key: $identity"
+    else
+        echo "  key not found, left commented: $identity"
+    fi
+}
+
+case "${1:-}" in
+    -h|--help|'')
+        usage
+        exit 0
+        ;;
+    --list|list)
+        list_aliases
+        exit 0
+        ;;
+    --remove|remove|rm)
+        [[ $# -eq 2 ]] || { usage >&2; exit 1; }
+        remove_alias "$2"
+        exit 0
+        ;;
+    *)
+        [[ $# -ge 2 ]] || { usage >&2; exit 1; }
+        parse_and_write_alias "$@"
+        ;;
+esac
