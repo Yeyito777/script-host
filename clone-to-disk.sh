@@ -147,10 +147,13 @@ read_key() {
     fi
 }
 
-# Hide cursor while the menu is active; restore on any exit
+# Hide cursor while the menu is active; restore on any exit.
+# Ctrl+C should abort, not merely restore the cursor and continue reads/prompts.
 tput civis 2>/dev/null || true
 show_cursor() { tput cnorm 2>/dev/null || true; }
-trap show_cursor EXIT INT TERM
+abort() { show_cursor; echo; echo "Aborted."; exit 130; }
+trap show_cursor EXIT
+trap abort INT TERM
 
 draw_menu
 
